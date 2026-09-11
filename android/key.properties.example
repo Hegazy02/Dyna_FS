@@ -1,0 +1,24 @@
+# Copy to android/key.properties and fill in. It is picked up automatically by
+# android/app/build.gradle.kts, and is git-ignored.
+#
+# Create the keystore once, and keep a backup somewhere safe — lose it and you
+# can never ship an update to an already-installed APK:
+#
+#   & "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe" `
+#     -genkeypair -keystore $env:USERPROFILE\dyn-gis-release.jks `
+#     -storetype PKCS12 -keyalg RSA -keysize 2048 -validity 10000 `
+#     -alias dyn-gis
+#
+# PKCS12, not JKS: keytool warns that JKS is a proprietary legacy format and
+# nudges you to migrate. Android reads PKCS12 keystores fine.
+#
+# Write this file WITHOUT a UTF-8 BOM. Java's Properties.load() reads bytes as
+# ISO-8859-1, so a BOM turns the first key into "\uFEFFstorePassword" and the
+# build fails with a null password. PowerShell's `-Encoding utf8` adds one on
+# Windows PowerShell 5.1 — use `-Encoding ascii`, or edit the file in an editor
+# set to "UTF-8 without BOM".
+storePassword=changeit
+keyPassword=changeit
+keyAlias=dyn-gis
+# Forward slashes, even on Windows.
+storeFile=C:/Users/you/dyn-gis-release.jks
