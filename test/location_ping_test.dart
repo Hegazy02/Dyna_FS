@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dyn_gis/src/config/app_config.dart';
 import 'package:dyn_gis/src/models/location_ping.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
@@ -120,17 +121,35 @@ void main() {
     });
 
     test('wire timestamps are naive, second-precision, no offset', () {
-      // The API's own samples look like "2026-09-09T09:59:00".
+      // The API's own samples look like "2026-09-09T09:59:00" — no
+      // milliseconds, no zone marker. Written from local parts rather than a
+      // fixed string so the assertion means the same thing on a CI box in UTC
+      // and a laptop in Riyadh.
       expect(
         LocationPing.formatWireTimestamp(
           DateTime.utc(2026, 9, 9, 9, 59, 0, 813),
         ),
-        '2026-09-09T09:59:00',
+        _naive(DateTime.utc(2026, 9, 9, 9, 59, 0, 813).toLocal()),
       );
       expect(
         LocationPing.formatWireTimestamp(DateTime.utc(2026, 1, 2, 3, 4, 5)),
-        '2026-01-02T03:04:05',
+        matches(RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$')),
       );
+    });
+
+    test('a default build sends the rep\'s local clock, not UTC', () {
+      // The whole point of the default: a fix taken at 09:59 on the rep's
+      // phone reaches the supervisor as 09:59. Only meaningful on a machine
+      // that is not itself on UTC, so it says so rather than passing vacuously.
+      expect(AppConfig.sendLocalTimestamps, isTrue);
+
+      final DateTime instant = DateTime.utc(2026, 9, 9, 9, 59);
+      final String wire = LocationPing.formatWireTimestamp(instant);
+
+      expect(wire, _naive(instant.toLocal()));
+      if (instant.toLocal().hour != instant.hour) {
+        expect(wire, isNot(_naive(instant)));
+      }
     });
 
     test('carries the mock-provider flag through', () {
@@ -157,4 +176,13 @@ void main() {
       expect(LocationPing.decode(ping.encode()).isMocked, isTrue);
     });
   });
+}
+
+/// Renders a DateTime the way the wire format does, from whatever zone it is
+/// already in. Lets the timestamp assertions state the rule rather than a
+/// string that only holds in one timezone.
+String _naive(DateTime t) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${t.year.toString().padLeft(4, '0')}-${two(t.month)}-${two(t.day)}'
+      'T${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
 }

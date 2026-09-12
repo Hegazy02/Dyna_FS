@@ -275,7 +275,14 @@ void main() {
       final body = jsonDecode(captured.body) as Map<String, dynamic>;
       final wire = (body['pings'] as List).single as Map<String, dynamic>;
 
-      expect(wire['at'], '2026-09-09T09:59:00');
+      // Naive, second-precision, no offset — and in the rep's local zone, so
+      // the expectation is rendered rather than hardcoded. See
+      // AppConfig.timestampMode.
+      expect(
+        wire['at'],
+        LocationPing.formatWireTimestamp(DateTime.utc(2026, 9, 9, 9, 59)),
+      );
+      expect(wire['at'], matches(RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$')));
       expect(wire['lat'], 24.755);
       expect(wire['lng'], 46.73);
       expect(wire['source'], 'Gps');

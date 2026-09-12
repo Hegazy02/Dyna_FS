@@ -51,17 +51,24 @@ class AppConfig {
     defaultValue: 'https://daralshayuat.dynaops365.net',
   );
 
-  /// How the `at` field is written: `utc` (default) or `local`.
+  /// How the `at` field is written: `local` (default) or `utc`.
   ///
   /// The endpoint takes naive timestamps with no offset
-  /// (`2026-09-09T09:59:00`), so the timezone is a convention rather than
-  /// something the wire format states. UTC is the safe default, but this
-  /// backend's own naive timestamps are UTC-7 — its login response reports
-  /// `expireAt` exactly seven hours behind the same token's `exp` claim — so
-  /// if stored pings come back shifted, flip this to `local` or have the API
-  /// take an offset.
+  /// (`2026-09-09T09:59:00`), so the zone is a convention between the two
+  /// sides rather than anything the wire format states. The convention here is
+  /// **the rep's own local clock**: a fix taken at 09:59 in Riyadh is sent as
+  /// `09:59`, and the supervisor screens show the time the rep would have read
+  /// off their phone.
+  ///
+  /// The cost of that convention is that it only holds while the device and
+  /// the server agree on what naive means. A phone travelling across a
+  /// timezone, or a server that interprets these as its own local time rather
+  /// than the device's, will shift the whole stream. If stored pings come back
+  /// offset by a whole number of hours, that disagreement is why — flip this
+  /// to `utc`, or have the API take an explicit offset, which is the only real
+  /// fix.
   static const String timestampMode =
-      String.fromEnvironment('DYN_GIS_TIMESTAMP_MODE', defaultValue: 'utc');
+      String.fromEnvironment('DYN_GIS_TIMESTAMP_MODE', defaultValue: 'local');
 
   static bool get sendLocalTimestamps => timestampMode.toLowerCase() == 'local';
 
