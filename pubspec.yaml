@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.6.0+12
+version: 1.6.2+14
 
 environment:
   sdk: ^3.13.3
@@ -56,6 +56,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   shared_preferences_platform_interface: ^2.4.2
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -98,3 +99,22 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Launcher icon, generated from the PWA's own 512px icon so the two apps look
+# like one product on the home screen. Regenerate after changing the source:
+#
+#     dart run flutter_launcher_icons
+#
+# Both layers come from the same artwork: the generator already insets the
+# foreground by 16%, which lands it inside the 66% safe zone Android 8+ masks
+# adaptive icons to. Pre-shrinking the source as well would apply the inset
+# twice and leave the mark about half the size it should be. The background is
+# the flat navy sampled from the artwork itself, so the two layers meet
+# seamlessly whatever shape the launcher applies.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#192966"
+  adaptive_icon_foreground: "assets/icon/icon.png"
+  remove_alpha_ios: true
