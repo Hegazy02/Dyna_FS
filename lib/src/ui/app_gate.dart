@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../data/auth_repository.dart';
 import '../models/auth_session.dart';
+import '../service/companion_app.dart';
 import '../service/companion_link.dart';
 import '../service/tracking_service.dart';
 import 'login_screen.dart';
@@ -40,8 +41,19 @@ class _AppGateState extends State<AppGate> {
   @override
   void initState() {
     super.initState();
-    _restore();
-    unawaited(_link.start(_onCompanionCall));
+    unawaited(_open());
+  }
+
+  /// Restore the cached session first, *then* start listening.
+  ///
+  /// Order matters on a cold start. [CompanionLink.start] replays the link that
+  /// launched the app, so a `dyngis://signout` can arrive while the restore is
+  /// still in flight — and the cached session would land a moment later and
+  /// sign the user straight back in. Sequencing them means the sign-out always
+  /// acts on a settled state.
+  Future<void> _open() async {
+    await _restore();
+    await _link.start(_onCompanionCall);
   }
 
   @override
@@ -85,7 +97,12 @@ class _AppGateState extends State<AppGate> {
       case CompanionRequest.signIn:
         unawaited(_onSignInRequested(call.session));
       case CompanionRequest.signOut:
-        unawaited(_signOut(notice: 'You signed out in DynaOps365.'));
+        // notifyCompanion: false — the PWA is the one that just told us.
+        // Telling it back would bounce the rep between the two apps.
+        unawaited(_signOut(
+          notice: 'You signed out in DynaOps365.',
+          notifyCompanion: false,
+        ));
     }
   }
 
@@ -124,11 +141,19 @@ class _AppGateState extends State<AppGate> {
     setState(() => _handoffRequest++);
   }
 
-  Future<void> _signOut({String? notice}) async {
+  /// [notifyCompanion] passes the sign-out on to the PWA, so one sign-out means
+  /// one sign-out. False only when the PWA is where it came from.
+  Future<void> _signOut({String? notice, bool notifyCompanion = true}) async {
     // Stop reporting first, so nothing is captured without an owner. Anything
     // already queued stays on disk and uploads when this user signs back in.
     await TrackingService.stop();
     await _auth.clear();
+
+    // After the local sign-out is done, never before: this hands the device to
+    // another app, and the rep must be signed out here whether or not that
+    // lands.
+    if (notifyCompanion) await CompanionApp.signOut();
+
     if (!mounted) return;
 
     setState(() {
