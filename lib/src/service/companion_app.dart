@@ -127,6 +127,30 @@ class CompanionApp {
         : CompanionLaunch.unavailable;
   }
 
+  /// Tells the companion app that the user signed out here.
+  ///
+  /// The two apps hold separate copies of the same session, and signing out
+  /// here does not invalidate the token server-side — so without this the PWA
+  /// would happily carry on for days with a credential its owner believes they
+  /// revoked.
+  ///
+  /// `#signout` as a fragment, for the same reason the hand-off uses one: it
+  /// never reaches the server. Installed app only, with no browser fallback —
+  /// opening a browser tab to sign out of an app that is not installed there
+  /// would be pure noise.
+  ///
+  /// Returns false when nothing took it, which callers ignore: a sign-out here
+  /// has already happened and must not be held up by the other app.
+  static Future<bool> signOut() async {
+    final Uri? target = uri;
+    if (target == null) return false;
+
+    return _tryLaunch(
+      target.replace(fragment: 'signout'),
+      LaunchMode.externalNonBrowserApplication,
+    );
+  }
+
   static Future<bool> _tryLaunch(Uri target, LaunchMode mode) async {
     try {
       return await launchUrl(target, mode: mode);

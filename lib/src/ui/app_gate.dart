@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../data/auth_repository.dart';
 import '../models/auth_session.dart';
+import '../service/companion_app.dart';
 import '../service/companion_link.dart';
 import '../service/tracking_service.dart';
 import 'login_screen.dart';
@@ -40,8 +41,19 @@ class _AppGateState extends State<AppGate> {
   @override
   void initState() {
     super.initState();
-    _restore();
-    unawaited(_link.start(_onCompanionRequest));
+    unawaited(_open());
+  }
+
+  /// Restore the cached session first, *then* start listening.
+  ///
+  /// Order matters on a cold start. [CompanionLink.start] replays the link that
+  /// launched the app, so a `dyngis://signout` can arrive while the restore is
+  /// still in flight — and the cached session would land a moment later and
+  /// sign the user straight back in. Sequencing them means the sign-out always
+  /// acts on a settled state.
+  Future<void> _open() async {
+    await _restore();
+    await _link.start(_onCompanionCall);
   }
 
   @override
@@ -78,26 +90,70 @@ class _AppGateState extends State<AppGate> {
   }
 
   /// The PWA calling in. See [CompanionRequest].
-  void _onCompanionRequest(CompanionRequest request) {
+  void _onCompanionCall(CompanionCall call) {
     if (!mounted) return;
 
-    switch (request) {
+    switch (call.request) {
       case CompanionRequest.signIn:
-        // Only a usable session is worth acting on. Without one the login
-        // screen is already what the rep is looking at, and the hand-off
-        // happens on its own once they sign in.
-        if (_session == null) return;
-        setState(() => _handoffRequest++);
+        unawaited(_onSignInRequested(call.session));
       case CompanionRequest.signOut:
-        unawaited(_signOut(notice: 'You signed out in DynaOps365.'));
+        // notifyCompanion: false — the PWA is the one that just told us.
+        // Telling it back would bounce the rep between the two apps.
+        unawaited(_signOut(
+          notice: 'You signed out in DynaOps365.',
+          notifyCompanion: false,
+        ));
     }
   }
 
-  Future<void> _signOut({String? notice}) async {
+  /// Answers `dyngis://signin`.
+  ///
+  /// [incoming] is a session the PWA passed over, for the case where the rep
+  /// signed in there: this app adopts it, takes the location permissions, and
+  /// hands them straight back — one password, typed once, on whichever side
+  /// they started.
+  ///
+  /// Without one, the request means "you already hold the credential, send it
+  /// back". If this app has no session either, nothing happens on purpose: the
+  /// login screen is already what the rep is looking at, and the hand-off
+  /// follows the sign-in by itself.
+  Future<void> _onSignInRequested(AuthSession? incoming) async {
+    final AuthSession? current = _session;
+
+    if (incoming != null && incoming.userId != current?.userId) {
+      // A different person than this app is tracking — or the first person to
+      // use it. Stop before switching: fixes already queued belong to the
+      // previous rep and must not be uploaded under the new one's token.
+      if (current != null) await TrackingService.stop();
+      await _auth.save(incoming);
+      if (!mounted) return;
+
+      setState(() {
+        _session = incoming;
+        _notice = null;
+        _lastUsername = incoming.username ?? _lastUsername;
+        _handoffRequest++;
+      });
+      return;
+    }
+
+    if (current == null) return;
+    setState(() => _handoffRequest++);
+  }
+
+  /// [notifyCompanion] passes the sign-out on to the PWA, so one sign-out means
+  /// one sign-out. False only when the PWA is where it came from.
+  Future<void> _signOut({String? notice, bool notifyCompanion = true}) async {
     // Stop reporting first, so nothing is captured without an owner. Anything
     // already queued stays on disk and uploads when this user signs back in.
     await TrackingService.stop();
     await _auth.clear();
+
+    // After the local sign-out is done, never before: this hands the device to
+    // another app, and the rep must be signed out here whether or not that
+    // lands.
+    if (notifyCompanion) await CompanionApp.signOut();
+
     if (!mounted) return;
 
     setState(() {
