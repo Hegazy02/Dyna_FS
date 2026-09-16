@@ -92,11 +92,11 @@ void main() {
       // only show up as an APK that queues forever in the field.
       expect(
         AppConfig.ingestUri.toString(),
-        'https://daralshayapi.dynaops365.net/api/LocationPings/batch',
+        'https://alraedapi.dynaops365.net/api/LocationPings/batch',
       );
       expect(
         AppConfig.loginUri.toString(),
-        'https://daralshayapi.dynaops365.net/api/Auth/Login',
+        'https://alraedapi.dynaops365.net/api/Auth/Login',
       );
       expect(AppConfig.isConfigured, isTrue);
     });

@@ -28,7 +28,7 @@ void main() {
       expect(CompanionApp.isConfigured, isTrue);
       expect(
         CompanionApp.uri.toString(),
-        'https://daralshayuat.dynaops365.net',
+        'https://alraed.dynaops365.net',
       );
     });
 

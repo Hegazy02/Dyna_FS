@@ -37,7 +37,7 @@ void main() {
       // The activity also receives the launcher intent and, in other builds,
       // https links. None of them should move the session.
       for (final String link in <String>[
-        'https://daralshayuat.dynaops365.net',
+        'https://alraed.dynaops365.net',
         'dyngis://',
         'dyngis://something-else',
         'otherapp://signout',

@@ -6,7 +6,7 @@
 ///
 /// ```
 /// flutter build apk --release \
-///   --dart-define=DYN_GIS_BASE_URL=https://daralshayapi.dynaops365.net \
+///   --dart-define=DYN_GIS_BASE_URL=https://alraedapi.dynaops365.net \
 ///   --dart-define=DYN_GIS_INGEST_PATH=/api/Location/Track \
 ///   --dart-define=DYN_GIS_HEARTBEAT_SECONDS=30
 /// ```
@@ -19,7 +19,7 @@ class AppConfig {
   /// Scheme + host (+ optional base path) of the backend. No trailing slash.
   static const String baseUrl = String.fromEnvironment(
     'DYN_GIS_BASE_URL',
-    defaultValue: 'https://daralshayapi.dynaops365.net',
+    defaultValue: 'https://alraedapi.dynaops365.net',
   );
 
   /// Path appended to [baseUrl] for signing in.
@@ -48,7 +48,7 @@ class AppConfig {
   ///     --dart-define=DYN_GIS_APP_URL=
   static const String companionUrl = String.fromEnvironment(
     'DYN_GIS_APP_URL',
-    defaultValue: 'https://daralshayuat.dynaops365.net',
+    defaultValue: 'https://alraed.dynaops365.net',
   );
 
   /// How the `at` field is written: `local` (default) or `utc`.
