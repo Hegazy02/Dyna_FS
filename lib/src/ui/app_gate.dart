@@ -41,7 +41,7 @@ class _AppGateState extends State<AppGate> {
   void initState() {
     super.initState();
     _restore();
-    unawaited(_link.start(_onCompanionRequest));
+    unawaited(_link.start(_onCompanionCall));
   }
 
   @override
@@ -78,19 +78,50 @@ class _AppGateState extends State<AppGate> {
   }
 
   /// The PWA calling in. See [CompanionRequest].
-  void _onCompanionRequest(CompanionRequest request) {
+  void _onCompanionCall(CompanionCall call) {
     if (!mounted) return;
 
-    switch (request) {
+    switch (call.request) {
       case CompanionRequest.signIn:
-        // Only a usable session is worth acting on. Without one the login
-        // screen is already what the rep is looking at, and the hand-off
-        // happens on its own once they sign in.
-        if (_session == null) return;
-        setState(() => _handoffRequest++);
+        unawaited(_onSignInRequested(call.session));
       case CompanionRequest.signOut:
         unawaited(_signOut(notice: 'You signed out in DynaOps365.'));
     }
+  }
+
+  /// Answers `dyngis://signin`.
+  ///
+  /// [incoming] is a session the PWA passed over, for the case where the rep
+  /// signed in there: this app adopts it, takes the location permissions, and
+  /// hands them straight back — one password, typed once, on whichever side
+  /// they started.
+  ///
+  /// Without one, the request means "you already hold the credential, send it
+  /// back". If this app has no session either, nothing happens on purpose: the
+  /// login screen is already what the rep is looking at, and the hand-off
+  /// follows the sign-in by itself.
+  Future<void> _onSignInRequested(AuthSession? incoming) async {
+    final AuthSession? current = _session;
+
+    if (incoming != null && incoming.userId != current?.userId) {
+      // A different person than this app is tracking — or the first person to
+      // use it. Stop before switching: fixes already queued belong to the
+      // previous rep and must not be uploaded under the new one's token.
+      if (current != null) await TrackingService.stop();
+      await _auth.save(incoming);
+      if (!mounted) return;
+
+      setState(() {
+        _session = incoming;
+        _notice = null;
+        _lastUsername = incoming.username ?? _lastUsername;
+        _handoffRequest++;
+      });
+      return;
+    }
+
+    if (current == null) return;
+    setState(() => _handoffRequest++);
   }
 
   Future<void> _signOut({String? notice}) async {
