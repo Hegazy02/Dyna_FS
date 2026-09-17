@@ -176,7 +176,109 @@ void main() {
       expect(LocationPing.decode(ping.encode()).isMocked, isTrue);
     });
   });
+
+  group('LocationPing derived velocity', () {
+    final at = DateTime.utc(2026, 5, 1, 12);
+
+    test('fills in speed and course when the receiver reports neither', () {
+      // A duty-cycled GNSS receiver routinely returns a position with no
+      // Doppler solution, which is what made every ping report 0 km/h.
+      // ~110m due west over 10s is a little under 40 km/h.
+      final ping = LocationPing.fromPosition(
+        _fix(lat: 10, lng: 19.999, at: at.add(const Duration(seconds: 10))),
+        trigger: PingTrigger.movement,
+        previous: _fix(lat: 10, lng: 20, at: at),
+      );
+
+      expect(ping.toWirePing()['speedKmh'], inInclusiveRange(37, 42));
+      // Due west, normalised out of bearingBetween's signed -180..180 range.
+      expect(ping.toWirePing()['headingDeg'], 270);
+    });
+
+    test('a real reading always wins over a derived one', () {
+      final ping = LocationPing.fromPosition(
+        _fix(
+          lat: 10,
+          lng: 19.999,
+          at: at.add(const Duration(seconds: 10)),
+          speed: 5,
+          heading: 90,
+        ),
+        trigger: PingTrigger.movement,
+        previous: _fix(lat: 10, lng: 20, at: at),
+      );
+
+      expect(ping.speed, 5);
+      expect(ping.heading, 90);
+    });
+
+    test('will not turn GPS jitter into a crawling vehicle', () {
+      // Two fixes ~2m apart with 5m accuracy: a parked car, not movement.
+      final ping = LocationPing.fromPosition(
+        _fix(lat: 10.00002, lng: 20, at: at.add(const Duration(seconds: 10))),
+        trigger: PingTrigger.heartbeat,
+        previous: _fix(lat: 10, lng: 20, at: at),
+      );
+
+      expect(ping.speed, isNull);
+      expect(ping.heading, isNull);
+    });
+
+    test('will not average a straight line across a long gap', () {
+      // 10 minutes later and a kilometre away says nothing about the route
+      // driven in between, so no reading is better than a made-up one.
+      final ping = LocationPing.fromPosition(
+        _fix(lat: 10.01, lng: 20, at: at.add(const Duration(minutes: 10))),
+        trigger: PingTrigger.heartbeat,
+        previous: _fix(lat: 10, lng: 20, at: at),
+      );
+
+      expect(ping.speed, isNull);
+      expect(ping.heading, isNull);
+    });
+
+    test('the first fix of a session has nothing to derive from', () {
+      final ping = LocationPing.fromPosition(
+        _fix(lat: 10, lng: 20, at: at),
+        trigger: PingTrigger.start,
+      );
+
+      expect(ping.speed, isNull);
+      expect(ping.heading, isNull);
+    });
+  });
 }
+
+/// A fix with every optional reading absent unless named, mirroring what the
+/// Android mapper produces when the platform could not measure one.
+Position _fix({
+  required double lat,
+  required double lng,
+  required DateTime at,
+  double accuracy = 5,
+  double? speed,
+  double? heading,
+}) =>
+    Position(
+      latitude: lat,
+      longitude: lng,
+      timestamp: at,
+      accuracy: accuracy,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: heading ?? 0,
+      headingAccuracy: 0,
+      speed: speed ?? 0,
+      speedAccuracy: 0,
+      isMocked: false,
+      hasAccuracy: true,
+      hasAltitude: false,
+      hasAltitudeAccuracy: false,
+      hasHeading: heading != null,
+      hasHeadingAccuracy: false,
+      hasSpeed: speed != null,
+      hasSpeedAccuracy: false,
+    );
 
 /// Renders a DateTime the way the wire format does, from whatever zone it is
 /// already in. Lets the timestamp assertions state the rule rather than a

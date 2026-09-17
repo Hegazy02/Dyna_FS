@@ -81,6 +81,25 @@ class AppConfig {
   static const int distanceFilterMeters =
       int.fromEnvironment('DYN_GIS_DISTANCE_FILTER_M', defaultValue: 25);
 
+  /// How often the GNSS receiver is asked for a fix, which is deliberately not
+  /// how often we report one — see [distanceFilterMeters] and
+  /// [heartbeatSeconds] for the reporting cadence.
+  ///
+  /// These have to be separate knobs. GNSS speed and bearing come from the
+  /// Doppler shift on the carrier signal, and that solution only exists while
+  /// the receiver is continuously tracking satellites. Ask Android for a fix
+  /// every 30 seconds and it duty-cycles the GPS hardware between requests;
+  /// each fix then arrives from a cold-ish engine with a position but no
+  /// velocity, so `Location.hasSpeed()` and `hasBearing()` come back false and
+  /// every ping reports 0 km/h. Sampling every second keeps the engine warm
+  /// and the velocity solution alive; the Dart-side distance gate keeps the
+  /// number of pings we actually send unchanged.
+  ///
+  /// The cost is real: a continuously tracking GNSS receiver draws noticeably
+  /// more power than a duty-cycled one. That is the price of a speed reading.
+  static const int gpsSampleSeconds =
+      int.fromEnvironment('DYN_GIS_GPS_SAMPLE_SECONDS', defaultValue: 1);
+
   /// Maximum pings sent in a single HTTP request when draining the queue.
   static const int batchSize =
       int.fromEnvironment('DYN_GIS_BATCH_SIZE', defaultValue: 100);

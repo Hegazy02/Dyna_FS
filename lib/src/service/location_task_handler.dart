@@ -64,6 +64,10 @@ class LocationTaskHandler extends TaskHandler {
   Position? _lastPosition;
   DateTime? _lastRecordedAt;
 
+  /// The last fix actually queued, as opposed to the last one received. The
+  /// distance gate and the derived-velocity fallback both measure from here.
+  Position? _lastReportedPosition;
+
   bool _ticking = false;
   bool _flushing = false;
   int _consecutiveFailures = 0;
@@ -163,11 +167,18 @@ class LocationTaskHandler extends TaskHandler {
     try {
       await _positionSub?.cancel();
 
+      // Both platforms are asked to sample continuously, with no native
+      // distance filter, and the reporting cadence is enforced in Dart by
+      // [_hasMovedEnough] instead. Pushing the filter down into the platform
+      // request is what starves the velocity solution: Android turns
+      // `intervalDuration` into `setMinUpdateIntervalMillis`, duty-cycles the
+      // GNSS receiver between updates, and then reports fixes with no speed
+      // and no bearing. See [AppConfig.gpsSampleSeconds].
       final LocationSettings settings = Platform.isAndroid
           ? AndroidSettings(
               accuracy: LocationAccuracy.high,
-              distanceFilter: AppConfig.distanceFilterMeters,
-              intervalDuration: Duration(seconds: AppConfig.heartbeatSeconds),
+              distanceFilter: 0,
+              intervalDuration: Duration(seconds: AppConfig.gpsSampleSeconds),
               // No foregroundNotificationConfig on purpose: this service
               // already runs as a `location` foreground service via
               // flutter_foreground_task. Setting it here starts a *second*
@@ -175,7 +186,7 @@ class LocationTaskHandler extends TaskHandler {
             )
           : AppleSettings(
               accuracy: LocationAccuracy.high,
-              distanceFilter: AppConfig.distanceFilterMeters,
+              distanceFilter: 0,
               allowBackgroundLocationUpdates: true,
               pauseLocationUpdatesAutomatically: false,
               showBackgroundLocationIndicator: true,
@@ -184,8 +195,13 @@ class LocationTaskHandler extends TaskHandler {
       _positionSub =
           Geolocator.getPositionStream(locationSettings: settings).listen(
         (Position position) {
+          // Every fix updates _lastPosition, so the heartbeat always has a
+          // genuinely fresh one to reuse, but only a fix that clears the
+          // distance gate becomes a ping.
           _lastPosition = position;
-          unawaited(_record(position, PingTrigger.movement));
+          if (_hasMovedEnough(position)) {
+            unawaited(_record(position, PingTrigger.movement));
+          }
         },
         onError: (Object error) {
           _lastError = 'position stream: $error';
@@ -243,6 +259,24 @@ class LocationTaskHandler extends TaskHandler {
     return !age.isNegative && age.inSeconds * 2 < AppConfig.heartbeatSeconds;
   }
 
+  /// True when [position] is far enough from the last reported fix to earn a
+  /// movement ping. This is the reporting cadence that used to be the native
+  /// `distanceFilter`; moving it into Dart is what lets the platform keep
+  /// sampling continuously without multiplying the pings we send.
+  bool _hasMovedEnough(Position position) {
+    final last = _lastReportedPosition;
+    if (last == null) return true;
+
+    final metres = Geolocator.distanceBetween(
+      last.latitude,
+      last.longitude,
+      position.latitude,
+      position.longitude,
+    );
+
+    return metres >= AppConfig.distanceFilterMeters;
+  }
+
   Future<void> _record(Position position, PingTrigger trigger) async {
     final fixTime = position.timestamp.toUtc();
 
@@ -252,18 +286,25 @@ class LocationTaskHandler extends TaskHandler {
     // only inflate the queue with rows the backend has to deduplicate anyway.
     if (_lastRecordedAt == fixTime) return;
 
+    final previous = _lastReportedPosition;
+
     try {
       await _queue.enqueue(
         LocationPing.fromPosition(
           position,
           trigger: trigger,
           batteryLevel: await _batteryLevel(),
+          // Let the ping fall back to a computed velocity when the receiver
+          // hands us a fix without one — indoors, on the first fix after a
+          // cold start, or any time the Doppler solution has not converged.
+          previous: previous,
         ),
         // Stamped with whoever is signed in, so this fix can never be
         // uploaded under a different account later.
         userId: _session?.userId ?? '',
       );
       _lastRecordedAt = fixTime;
+      _lastReportedPosition = position;
     } catch (error) {
       _lastError = 'enqueue: $error';
     }
