@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:geolocator/geolocator.dart';
 
@@ -40,7 +41,10 @@ class LocationPing {
     Position position, {
     required PingTrigger trigger,
     int? batteryLevel,
+    Position? previous,
   }) {
+    final derived = _derive(position, previous);
+
     return LocationPing(
       latitude: position.latitude,
       longitude: position.longitude,
@@ -50,9 +54,9 @@ class LocationPing {
       altitude: position.hasAltitude ? position.altitude : null,
       altitudeAccuracy:
           position.hasAltitudeAccuracy ? position.altitudeAccuracy : null,
-      speed: position.hasSpeed ? position.speed : null,
+      speed: position.hasSpeed ? position.speed : derived?.speed,
       speedAccuracy: position.hasSpeedAccuracy ? position.speedAccuracy : null,
-      heading: position.hasHeading ? position.heading : null,
+      heading: position.hasHeading ? position.heading : derived?.heading,
       isMocked: position.isMocked,
       batteryLevel: batteryLevel,
     );
@@ -140,6 +144,65 @@ class LocationPing {
         'T${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
   }
 
+  /// Longest gap between two fixes that still supports a derived velocity. A
+  /// straight line between endpoints two minutes apart says nothing useful
+  /// about the route actually driven, or the speed along it.
+  static const double _maxDerivationGapSeconds = 120;
+
+  /// Floor for the movement a derivation needs, for fixes that report no
+  /// accuracy at all.
+  static const double _minDerivationMetres = 10;
+
+  /// Speed and course computed from the previous fix, for the common case of a
+  /// receiver that reports a position but no velocity.
+  ///
+  /// This is dead reckoning between two points, so it is only honest when the
+  /// gap is short enough that a straight line approximates the real path, and
+  /// the movement is larger than the noise in the two fixes that measured it.
+  /// Returns null whenever it cannot meet that bar, leaving the field null
+  /// rather than guessing.
+  static _DerivedVelocity? _derive(Position position, Position? previous) {
+    if (previous == null) return null;
+    if (position.hasSpeed && position.hasHeading) return null;
+
+    final seconds =
+        position.timestamp.difference(previous.timestamp).inMilliseconds / 1000;
+    if (seconds <= 0 || seconds > _maxDerivationGapSeconds) return null;
+
+    final metres = Geolocator.distanceBetween(
+      previous.latitude,
+      previous.longitude,
+      position.latitude,
+      position.longitude,
+    );
+
+    // Two fixes taken while parked still differ by a few metres. Deriving a
+    // speed from that noise would report a stationary vehicle as crawling, so
+    // the movement has to clear the accuracy of the fixes that measured it.
+    final noise = math.max(
+      _minDerivationMetres,
+      math.max(
+        position.hasAccuracy ? position.accuracy : 0.0,
+        previous.hasAccuracy ? previous.accuracy : 0.0,
+      ),
+    );
+    if (metres < noise) return null;
+
+    return _DerivedVelocity(
+      speed: metres / seconds,
+      // `bearingBetween` is signed (-180..180); the wire format wants a
+      // compass course (0..360).
+      heading: (Geolocator.bearingBetween(
+                previous.latitude,
+                previous.longitude,
+                position.latitude,
+                position.longitude,
+              ) +
+              360) %
+          360,
+    );
+  }
+
   /// Rounds to a Dart `int`, so `jsonEncode` writes `28` rather than `28.0`.
   /// Guards against the non-finite values a bad GPS fix can produce, which
   /// `round()` would throw on.
@@ -168,4 +231,13 @@ class LocationPing {
 
   static LocationPing decode(String raw) =>
       LocationPing.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+}
+
+/// Speed (metres per second) and course (degrees) reconstructed from two
+/// consecutive fixes, used only when the platform reported neither.
+class _DerivedVelocity {
+  const _DerivedVelocity({required this.speed, required this.heading});
+
+  final double speed;
+  final double heading;
 }
