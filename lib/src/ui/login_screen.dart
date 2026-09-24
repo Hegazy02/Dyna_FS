@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/auth_repository.dart';
+import '../data/remembered_account.dart';
 import '../models/auth_session.dart';
 
 /// Sign-in screen. Shown only when there is no cached session, when the cached
@@ -34,14 +37,47 @@ class _LoginScreenState extends State<LoginScreen> {
   final FocusNode _passwordFocus = FocusNode();
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
 
+  final RememberedAccountStore _remembered = const RememberedAccountStore();
+
   bool _busy = false;
   bool _obscure = true;
   String? _error;
+
+  /// The previous sign-in, offered as a one-tap suggestion. Null until the
+  /// keystore read comes back, and null forever if nobody has signed in on
+  /// this device yet.
+  RememberedAccount? _suggestion;
 
   @override
   void initState() {
     super.initState();
     _username.text = widget.initialUsername ?? '';
+    unawaited(_loadSuggestion());
+  }
+
+  Future<void> _loadSuggestion() async {
+    final account = await _remembered.load();
+    if (!mounted || account == null) return;
+
+    setState(() => _suggestion = account);
+  }
+
+  /// Fills both fields from the suggestion, leaving the rep one tap from being
+  /// signed in. Deliberately does not submit for them: a sign-in that fires on
+  /// a stray tap, with no chance to read what it is about to send, is a worse
+  /// experience than the one tap it saves.
+  void _useSuggestion(RememberedAccount account) {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _username.text = account.username;
+      _password.text = account.password;
+      _error = null;
+    });
+  }
+
+  Future<void> _forgetSuggestion() async {
+    setState(() => _suggestion = null);
+    await _remembered.clear();
   }
 
   @override
@@ -72,6 +108,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
     switch (result) {
       case LoginSuccess(session: final session):
+        // Only a credential the server has just accepted is worth keeping, so
+        // this is the one place that writes it. Awaited before handing control
+        // on, or the screen can be disposed mid-write.
+        await _remembered.save(
+          RememberedAccount(
+            username: _username.text.trim(),
+            password: _password.text,
+            fullName: session.fullName,
+          ),
+        );
+        if (!mounted) return;
         widget.onSignedIn(session);
       case LoginRejected(message: final message):
       case LoginFailed(message: final message):
@@ -129,6 +176,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         message: widget.notice!,
                         color: const Color(0xFFB25000),
                         background: const Color(0xFFFFF3E6),
+                      ),
+                    ],
+                    if (_suggestion != null) ...<Widget>[
+                      const SizedBox(height: 28),
+                      _AccountSuggestion(
+                        account: _suggestion!,
+                        enabled: !_busy,
+                        onUse: () => _useSuggestion(_suggestion!),
+                        onForget: _forgetSuggestion,
                       ),
                     ],
                     const SizedBox(height: 28),
@@ -207,6 +263,92 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The previous sign-in, offered as a tappable row: the rep taps their own
+/// name, then Sign in, and types nothing.
+class _AccountSuggestion extends StatelessWidget {
+  const _AccountSuggestion({
+    required this.account,
+    required this.enabled,
+    required this.onUse,
+    required this.onForget,
+  });
+
+  final RememberedAccount account;
+  final bool enabled;
+  final VoidCallback onUse;
+  final VoidCallback onForget;
+
+  @override
+  Widget build(BuildContext context) {
+    // The username is the subtitle only when it is not already the title, so
+    // an account with no display name does not print the same string twice.
+    final String? subtitle =
+        account.label == account.username ? null : account.username;
+
+    return Material(
+      color: const Color(0xFFF2F7FF),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: enabled ? onUse : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+          child: Row(
+            children: <Widget>[
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: const Color(0xFF0A84FF),
+                child: Text(
+                  account.initial,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      account.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1C1C1E),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle ?? 'Tap to sign in',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: Color(0xFF8A8A8E),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: enabled ? onForget : null,
+                icon: const Icon(Icons.close, size: 18),
+                color: const Color(0xFF8A8A8E),
+                tooltip: 'Forget this account',
+              ),
+            ],
           ),
         ),
       ),
