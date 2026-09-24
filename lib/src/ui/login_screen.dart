@@ -62,17 +62,24 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _suggestion = account);
   }
 
-  /// Fills both fields from the suggestion, leaving the rep one tap from being
-  /// signed in. Deliberately does not submit for them: a sign-in that fires on
-  /// a stray tap, with no chance to read what it is about to send, is a worse
-  /// experience than the one tap it saves.
-  void _useSuggestion(RememberedAccount account) {
+  /// Signs straight in as the suggested account: one tap, no typing.
+  ///
+  /// The fields are still filled on the way through rather than the credential
+  /// being passed to [_submit] directly. If the sign-in fails — a password
+  /// changed on the server since it was saved, most likely — the rep is left
+  /// looking at their own details above the error, one edit away from fixing
+  /// it, instead of an empty form that gives them nothing to correct.
+  Future<void> _useSuggestion(RememberedAccount account) async {
+    if (_busy) return;
+
     FocusScope.of(context).unfocus();
     setState(() {
       _username.text = account.username;
       _password.text = account.password;
       _error = null;
     });
+
+    await _submit();
   }
 
   Future<void> _forgetSuggestion() async {
@@ -271,7 +278,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 /// The previous sign-in, offered as a tappable row: the rep taps their own
-/// name, then Sign in, and types nothing.
+/// name and is signed in, without typing or pressing anything else.
 class _AccountSuggestion extends StatelessWidget {
   const _AccountSuggestion({
     required this.account,
@@ -342,12 +349,27 @@ class _AccountSuggestion extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                onPressed: enabled ? onForget : null,
-                icon: const Icon(Icons.close, size: 18),
-                color: const Color(0xFF8A8A8E),
-                tooltip: 'Forget this account',
-              ),
+              // Tapping the row signs in, so the wait belongs here, where the
+              // rep actually tapped, rather than only on the button below.
+              if (!enabled)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14),
+                  child: SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF0A84FF),
+                    ),
+                  ),
+                )
+              else
+                IconButton(
+                  onPressed: onForget,
+                  icon: const Icon(Icons.close, size: 18),
+                  color: const Color(0xFF8A8A8E),
+                  tooltip: 'Forget this account',
+                ),
             ],
           ),
         ),
