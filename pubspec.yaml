@@ -44,6 +44,7 @@ dependencies:
   battery_plus: ^7.1.1
   url_launcher: ^6.3.2
   app_links: ^7.2.1
+  flutter_secure_storage: ^11.2.0
 
 dev_dependencies:
   flutter_test:
